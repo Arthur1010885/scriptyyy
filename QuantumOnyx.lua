@@ -1,22 +1,29 @@
 --[[
                             YUTA FOX HUB PROJECT
             This was made by YUtaFox Team
-            KEYSYSTEM UI built using KeyAuth + Fallback
+            KEYSYSTEM UI built with Local Validation
             Copyright © 2022-2026 YUtaFox Team - All Rights Reserved.
 ]]--
 
 -- ============================================================
--- CONFIGURAÇÕES KEYAUTH
+-- CONFIGURAÇÕES DO SISTEMA DE CHAVES (VALIDAÇÃO LOCAL)
 -- ============================================================
-local KEYAUTH_CONFIG = {
-    Name = "Orginalstorepix's Application",
-    OwnerID = "Nr2W59Crsg",
-    Version = "1.0",
-    Secret = "995bc0e3bb7075fdb967c8f7aafae88ac5f947c14df66fa060d0321c028d31ae"
+local KEY_CONFIG = {
+    -- Lista de chaves válidas (adicione quantas quiser)
+    VALID_KEYS = {
+        "YUtaFox-1234",
+        "YUtaFox-5678",
+        "FREE-2024",
+        "TEST-KEY",
+        -- Adicione mais chaves aqui
+    },
+    -- Pasta onde salvar a chave usada
+    FOLDER = "YUtaFox Hub",
+    KEY_FILE = "YUtaFox Hub/Key.json"
 }
 
 local API_CONFIG = {
-    BASE_URL = "https://api.quantumonyx.cc",
+    BASE_URL = "https://api.yutafox.cc",
     FALLBACK_URL = "http://165.232.169.51:22527",
     DISCORD_INVITE = "https://discord.gg/yutafox",
 }
@@ -30,8 +37,8 @@ local Scripts = {
     },
 }
 
-local FOLDER = "YUtaFox Hub"
-local KEY_FILE = FOLDER .. "/Key.json"
+local FOLDER = KEY_CONFIG.FOLDER
+local KEY_FILE = KEY_CONFIG.KEY_FILE
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -164,37 +171,56 @@ local function ToTime(expire)
     return string.format("%dm", minutes)
 end
 
-local function SaveKey(key, data)
+-- ============================================================
+-- SISTEMA DE CHAVES LOCAL (SEM KEYAUTH)
+-- ============================================================
+local KeySystem = {}
+
+function KeySystem:IsValidKey(key)
+    if not key or key == "" then return false end
+    key = tostring(key):gsub("%s+", "")
+    for _, validKey in ipairs(KEY_CONFIG.VALID_KEYS) do
+        if key == validKey then
+            return true
+        end
+    end
+    return false
+end
+
+function KeySystem:SaveKey(key)
     pcall(function()
         if not IsFolderFunc(FOLDER) then MakeFolderFunc(FOLDER) end
         local saveData = {
             key = tostring(key):gsub("%s+", ""),
-            username = data and data.username or "",
-            expiresAt = data and data.expiresAt or 0,
-            hwid = GetHWID()
+            hwid = GetHWID(),
+            date = os.time()
         }
         WriteFileFunc(KEY_FILE, HttpService:JSONEncode(saveData))
     end)
 end
 
-local function LoadSavedKey()
-    if pcall(function() return IsFolderFunc(FOLDER) and IsFileFunc(KEY_FILE) end) and IsFolderFunc(FOLDER) and IsFileFunc(KEY_FILE) then
+function KeySystem:LoadSavedKey()
+    if IsFolderFunc(FOLDER) and IsFileFunc(KEY_FILE) then
         local ok, v = pcall(function()
             return HttpService:JSONDecode(ReadFileFunc(KEY_FILE))
         end)
-        if ok and type(v) == "table" and v.key then return v
-        else return nil
-        end
+        if ok and type(v) == "table" and v.key then return v.key
     end
     return nil
 end
 
-local function ClearKey()
+function KeySystem:ClearKey()
     pcall(function()
-        if not IsFolderFunc(FOLDER) then MakeFolderFunc(FOLDER) end
-        WriteFileFunc(KEY_FILE, HttpService:JSONEncode({}))
+        if IsFolderFunc(FOLDER) then WriteFileFunc(KEY_FILE, HttpService:JSONEncode({})) end
     end)
 end
+
+function KeySystem:CheckHWID()
+    -- Verificação simples de HWID (pode ser expandida)
+    return true
+end
+
+local KeySystemInstance = KeySystem
 
 local function LoadScript(tier, scriptPayload)
     if tier == "Free" then
@@ -227,173 +253,7 @@ local function LoadScript(tier, scriptPayload)
 end
 
 -- ============================================================
--- CARREGAMENTO DA BIBLIOTECA KEYAUTH COM MÚLTIPLOS FALLBACKS
--- ============================================================
-local KEYAUTH_LIB_URLS = {
-    "https://raw.githubusercontent.com/KeyAuth/KeyAuth/main/example.lua",
-    "https://keyauth.cc/api/example.lua",
-    API_CONFIG.BASE_URL .. "/keyauth.lua",
-    API_CONFIG.FALLBACK_URL .. "/keyauth.lua",
-    "https://pastebin.com/raw/2Z6Yk1wD", -- fallback alternativo (se tiver)
-}
-
-local function LoadKeyAuthLibrary()
-    local lib = nil
-    local lastError = nil
-
-    for _, url in ipairs(KEYAUTH_LIB_URLS) do
-        local success, result = pcall(function()
-            return game:HttpGet(url)
-        end)
-        if success and result and #result > 100 then
-            local loadSuccess, loaded = pcall(function()
-                return loadstring(result)
-            end)
-            if loadSuccess and loaded then
-                lib = loaded
-                break
-            else
-                lastError = "Failed to loadstring from " .. url
-            end
-        else
-            lastError = "Failed to download from " .. url
-        end
-    end
-
-    if not lib then
-        warn("[KeyAuth] Library load failed, using direct API fallback")
-        -- Fallback: cria uma tabela com funções que chamam a API diretamente via HttpRequest
-        lib = function()
-            local api = {}
-            
-            function api.init(params)
-                -- Não faz nada, pois usaremos chamadas diretas
-                return true
-            end
-            
-            function api.license(key)
-                local payload = HttpService:JSONEncode({
-                    key = key,
-                    hwid = GetHWID(),
-                    name = KEYAUTH_CONFIG.Name,
-                    ownerid = KEYAUTH_CONFIG.OwnerID,
-                    version = KEYAUTH_CONFIG.Version,
-                    secret = KEYAUTH_CONFIG.Secret
-                })
-                local ok, res = pcall(function()
-                    return HttpRequest({
-                        Url = "https://keyauth.cc/api/1.2/",
-                        Method = "POST",
-                        Headers = { ["Content-Type"] = "application/json" },
-                        Body = payload
-                    })
-                end)
-                if ok and res and res.StatusCode == 200 then
-                    local data = HttpService:JSONDecode(res.Body)
-                    if data.success then
-                        return {
-                            success = true,
-                            info = {
-                                username = data.info.username,
-                                subscription = data.info.subscription,
-                                expiry = data.info.expiry,
-                                hwid = data.info.hwid
-                            }
-                        }
-                    end
-                end
-                return { success = false }
-            end
-            
-            function api.checkhwid()
-                return true
-            end
-            
-            return api
-        end
-        return lib
-    end
-
-    return lib
-end
-
--- Inicializa o KeyAuth com fallback
-local KeyAuthLib = LoadKeyAuthLibrary()
-local KeyAuth = KeyAuthLib()
-
--- ============================================================
--- SISTEMA KEYAUTH (com fallback integrado)
--- ============================================================
-local KeyAuthInstance = {}
-
-function KeyAuthInstance:Init()
-    -- Tenta inicializar a lib (já foi carregada via fallback)
-    if KeyAuth.init then
-        pcall(function() KeyAuth.init({
-            name = KEYAUTH_CONFIG.Name,
-            ownerid = KEYAUTH_CONFIG.OwnerID,
-            version = KEYAUTH_CONFIG.Version,
-            secret = KEYAUTH_CONFIG.Secret
-        }) end)
-    end
-    return true
-end
-
-function KeyAuthInstance:CheckKey(keyStr)
-    if not keyStr or keyStr == "" then return false, nil end
-    
-    -- Tenta usar a lib carregada
-    local success, result = pcall(function()
-        return KeyAuth.license(keyStr)
-    end)
-    
-    if success and result and result.success then
-        return true, {
-            username = result.info.username,
-            subscription = result.info.subscription,
-            expiresAt = result.info.expiry,
-            hwid = result.info.hwid
-        }
-    end
-    
-    -- Fallback: tenta via HttpRequest diretamente (já feito no fallback da lib)
-    local payload = HttpService:JSONEncode({
-        key = keyStr,
-        hwid = GetHWID(),
-        name = KEYAUTH_CONFIG.Name,
-        ownerid = KEYAUTH_CONFIG.OwnerID,
-        version = KEYAUTH_CONFIG.Version,
-        secret = KEYAUTH_CONFIG.Secret
-    })
-    local ok, res = pcall(function()
-        return HttpRequest({
-            Url = "https://keyauth.cc/api/1.2/",
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = payload
-        })
-    end)
-    if ok and res and res.StatusCode == 200 then
-        local data = HttpService:JSONDecode(res.Body)
-        if data.success then
-            return true, {
-                username = data.info.username,
-                subscription = data.info.subscription,
-                expiresAt = data.info.expiry,
-                hwid = data.info.hwid
-            }
-        end
-    end
-    
-    return false, nil
-end
-
-function KeyAuthInstance:CheckHWID()
-    return true
-end
-
--- ============================================================
--- TELA DE CHAVE (UI) - MANTIDA IGUAL, MAS USANDO KeyAuthInstance
+-- TELA DE CHAVE (UI) - VERSÃO LOCAL
 -- ============================================================
 local function ShowKeyUI()
     local done = false
@@ -891,24 +751,24 @@ local function ShowKeyUI()
 
         SetStatus("Validating key...", Color3.fromRGB(175, 150, 255))
 
-        -- Usa KeyAuthInstance com fallback
-        local success, data = KeyAuthInstance:CheckKey(keyStr)
+        -- Validação local
+        local isValid = KeySystemInstance:IsValidKey(keyStr)
 
-        if success and data then
+        if isValid then
             isPremium = true
-            SaveKey(keyStr, data)
+            KeySystemInstance:SaveKey(keyStr)
 
             LRMStatusLabel.Text = "Premium Active"
             LRMStatusLabel.TextColor3 = Color3.fromRGB(80, 230, 130)
             DisplayNameLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
 
             SetStatus("✅ Key verified! Loading...", Color3.fromRGB(80, 230, 130))
-            Notify("Key Verified", "Welcome " .. data.username .. "!", Color3.fromRGB(80, 230, 130))
+            Notify("Key Verified", "Welcome to YUtaFox Premium!", Color3.fromRGB(80, 230, 130))
 
             task.wait(0.5)
             AnimateClose()
 
-            print("[YUtaFox] Premium ativado para: " .. data.username)
+            print("[YUtaFox] Premium ativado com sucesso!")
 
         else
             submitting = false
@@ -918,12 +778,12 @@ local function ShowKeyUI()
     end
 
     -- Carregar chave salva
-    local saved = LoadSavedKey()
-    if saved and saved.key and #saved.key > 0 then
-        KeyInput.Text = saved.key
+    local saved = KeySystemInstance:LoadSavedKey()
+    if saved and #saved > 0 then
+        KeyInput.Text = saved
         task.spawn(function()
             task.wait(0.5)
-            SubmitKey(saved.key)
+            SubmitKey(saved)
         end)
     end
 
@@ -1029,7 +889,7 @@ local function ShowKeyUI()
         return btn
     end
 
-    MakeOptionBtn("Get Key", 4, "https://keyauth.cc/app/", "Open KeyAuth website!")
+    MakeOptionBtn("Get Key", 4, "https://discord.gg/yutafox", "Join our Discord!")
     MakeOptionBtn("Support", 38, "https://discord.gg/yutafox", "Join our Discord!")
 
     local getKeyBtn = MakeBtn("Options", RX + BtnW + BtnGap, BtnW, Color3.fromRGB(20, 45, 90), Color3.fromRGB(130, 195, 255), function()
@@ -1069,18 +929,14 @@ end
 -- INICIALIZAÇÃO
 -- ============================================================
 local function AuthenticateAndLoad()
-    -- Inicializa o KeyAuthInstance (já com fallback)
-    KeyAuthInstance:Init()
-
-    local saved = LoadSavedKey()
-    if saved and saved.key and #saved.key > 0 then
+    local saved = KeySystemInstance:LoadSavedKey()
+    if saved and #saved > 0 then
         task.spawn(function()
-            local success, data = KeyAuthInstance:CheckKey(saved.key)
-            if success and data then
-                Notify("Welcome Back", "Auto-logged in as " .. data.username, Color3.fromRGB(80, 230, 130))
-                print("[YUtaFox] Premium ativado para: " .. data.username)
+            if KeySystemInstance:IsValidKey(saved) then
+                Notify("Welcome Back", "Auto-logged in successfully!", Color3.fromRGB(80, 230, 130))
+                print("[YUtaFox] Premium ativado via chave salva!")
             else
-                ClearKey()
+                KeySystemInstance:ClearKey()
                 ShowKeyUI()
             end
         end)
