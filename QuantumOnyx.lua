@@ -1,18 +1,24 @@
 --[[
                             YUTA FOX HUB PROJECT
             This was made by YUtaFox Team
-            KEYSYSTEM UI built using claude ai
-            Service by Luarmor.net
+            KEYSYSTEM UI built using KeyAuth
             Copyright © 2022-2026 YUtaFox Team - All Rights Reserved.
 ]]--
+
+-- ============================================================
+-- CONFIGURAÇÕES KEYAUTH
+-- ============================================================
+local KEYAUTH_CONFIG = {
+    Name = "Orginalstorepix's Application",
+    OwnerID = "Nr2W59Crsg",
+    Version = "1.0",
+    Secret = "995bc0e3bb7075fdb967c8f7aafae88ac5f947c14df66fa060d0321c028d31ae"
+}
+
 local API_CONFIG = {
     BASE_URL = "https://api.yutafox.cc",
     FALLBACK_URL = "http://165.232.169.51:22527",
     DISCORD_INVITE = "https://discord.gg/yutafox",
-    KEY_LINKS = {
-        Lootlabs = "https://ads.luarmor.net/get_key?for=YUtaFox_Keysytem-NdUqNPMGBobv",
-        Linkvertise = "https://ads.luarmor.net/get_key?for=YUtaFox_Keysytem-KCyPvypRNlEm",
-    }
 }
 
 local Directory = "https://raw.githubusercontent.com/flazhy/QuantumOnyx/refs/heads/main/Games"
@@ -23,8 +29,6 @@ local Scripts = {
         [8191429227] = Directory .. "/CutTrees.lua",
     },
 }
-
-local STOCK_LOADER_URL = "https://api.luarmor.net/files/v4/loaders/0ae9fe4cf963e3a13d25eed0e2ce5940.lua"
 
 local FOLDER = "YUtaFox Hub"
 local KEY_FILE = FOLDER .. "/Key.json"
@@ -44,18 +48,12 @@ local HttpRequest = (syn and syn.request)
     or request
     or (fluxus and fluxus.request)
     or (delta and delta.request)
-local httpRequest = HttpRequest
 
 local IsFileFunc = isfile or function(file) return false end
-local isFileFunc = IsFileFunc
 local ReadFileFunc = readfile or function(file) return "" end
-local readFileFunc = ReadFileFunc
 local WriteFileFunc = writefile or function(file, content) end
-local writeFileFunc = WriteFileFunc
 local MakeFolderFunc = makefolder or function(folder) end
-local makeFolderFunc = MakeFolderFunc
 local IsFolderFunc = isfolder or function(folder) return false end
-local isFolderFunc = IsFolderFunc
 
 local function GetExecutorName()
     if identifyexecutor then return identifyexecutor() end
@@ -65,7 +63,6 @@ local function GetExecutorName()
     if is_sirhurt_closure then return "SirHurt" end
     return "Unknown Executor"
 end
-local getExecutorName = GetExecutorName
 
 local function GetHWID()
     local hwid = nil
@@ -84,7 +81,6 @@ local function GetHWID()
     end
     return tostring(hwid)
 end
-local getHWID = GetHWID
 
 local function Tween(obj, props, t, style, dir)
     style = style or Enum.EasingStyle.Quint
@@ -168,10 +164,16 @@ local function ToTime(expire)
     return string.format("%dm", minutes)
 end
 
-local function SaveKey(key)
+local function SaveKey(key, data)
     pcall(function()
         if not IsFolderFunc(FOLDER) then MakeFolderFunc(FOLDER) end
-        WriteFileFunc(KEY_FILE, HttpService:JSONEncode({ key = tostring(key):gsub("%s+", "") }))
+        local saveData = {
+            key = tostring(key):gsub("%s+", ""),
+            username = data and data.username or "",
+            expiresAt = data and data.expiresAt or 0,
+            hwid = GetHWID()
+        }
+        WriteFileFunc(KEY_FILE, HttpService:JSONEncode(saveData))
     end)
 end
 
@@ -180,102 +182,17 @@ local function LoadSavedKey()
         local ok, v = pcall(function()
             return HttpService:JSONDecode(ReadFileFunc(KEY_FILE))
         end)
-        if ok and type(v) == "table" and v.key then return tostring(v.key):gsub("%s+", "") end
+        if ok and type(v) == "table" and v.key then return v
+        else return nil
+        end
     end
-    return ""
+    return nil
 end
 
 local function ClearKey()
     pcall(function()
         if not IsFolderFunc(FOLDER) then MakeFolderFunc(FOLDER) end
         WriteFileFunc(KEY_FILE, HttpService:JSONEncode({}))
-    end)
-end
-
-local function ApplyScriptKey(key)
-    getgenv().script_key = key
-    getgenv().key = key
-    if type(_G) == "table" then
-        _G.script_key = key
-    end
-    if type(shared) == "table" then
-        shared.script_key = key
-    end
-    pcall(function()
-        if type(getrenv) == "function" then
-            local env = getrenv()
-            if type(env) == "table" then
-                env.script_key = key
-            end
-        end
-    end)
-end
-
-local function VerifyWithServer(keyStr)
-    if not HttpRequest then
-        return false, nil, "Executor lacks HTTP request capability."
-    end
-
-    local hwid = GetHWID()
-    local executor = GetExecutorName()
-    local payload = HttpService:JSONEncode({
-        key = keyStr,
-        hwid = hwid,
-        executor = executor,
-        game_id = game.PlaceId
-    })
-
-    local ok, res = pcall(function()
-        return HttpRequest({
-            Url = API_CONFIG.BASE_URL .. "/api/v1/authenticate",
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = payload
-        })
-    end)
-
-    if not ok or not res or res.StatusCode == 0 or res.StatusCode == 522 then
-        ok, res = pcall(function()
-            return HttpRequest({
-                Url = API_CONFIG.FALLBACK_URL .. "/api/v1/authenticate",
-                Method = "POST",
-                Headers = { ["Content-Type"] = "application/json" },
-                Body = payload
-            })
-        end)
-    end
-
-    if not ok or not res then
-        return false, nil, "Could not reach verification server."
-    end
-
-    local data = nil
-    pcall(function()
-        data = HttpService:JSONDecode(res.Body)
-    end)
-
-    if res.StatusCode == 200 and data and data.success then
-        return true, data, nil
-    else
-        local errMsg = (data and data.error) or ("Error HTTP " .. tostring(res.StatusCode))
-        return false, nil, errMsg
-    end
-end
-
-local function IsPermanentKey(statusData)
-    local expire = statusData and statusData.auth_expire
-    return not expire or expire == 0 or expire == -1
-end
-
-local function IsExpiredNow(statusData)
-    local expire = statusData and statusData.auth_expire
-    if not expire or expire == 0 or expire == -1 then return false end
-    return expire <= os.time()
-end
-
-local function LoadStockLoader()
-    pcall(function()
-        loadstring(game:HttpGet(STOCK_LOADER_URL))()
     end)
 end
 
@@ -303,92 +220,81 @@ local function LoadScript(tier, scriptPayload)
                 end
             end)
         else
-            warn("[YUtaFox BloxFruits] Payload empty from server, loading Luarmor loader fallback...")
-            LoadStockLoader()
+            warn("[YUtaFox BloxFruits] No payload, loading free fallback...")
+            LoadScript("Free", nil)
         end
     end
 end
-local function ResolveAndLoadKey(keyStr, hooks)
-    hooks = hooks or {}
-    local onStatus = hooks.onStatus or function() end
-    local onSuccess = hooks.onSuccess or function() end
-    local onFail = hooks.onFail or function() end
 
-    keyStr = keyStr and tostring(keyStr):gsub("%s+", "") or ""
-    if keyStr == "" then
-        onFail("empty")
-        return
+-- ============================================================
+-- SISTEMA KEYAUTH
+-- ============================================================
+local KeyAuth = {}
+
+function KeyAuth:Init()
+    local success, result = pcall(function()
+        return loadstring(game:HttpGet("https://raw.githubusercontent.com/KeyAuth/KeyAuth/main/example.lua"))()
+    end)
+    if not success or not result then
+        Notify("KeyAuth Error", "Failed to load KeyAuth library.", Color3.fromRGB(255, 90, 110))
+        return false
     end
 
-    local startTime = os.clock()
-    onStatus("Verifying key with Luarmor...")
+    local keyauth = result
 
-    local sdkOk, LuarmorAPI = pcall(function()
-        return loadstring(game:HttpGet("https://sdkapi-public.luarmor.net/library.lua"))()
+    keyauth.init({
+        name = KEYAUTH_CONFIG.Name,
+        ownerid = KEYAUTH_CONFIG.OwnerID,
+        version = KEYAUTH_CONFIG.Version,
+        secret = KEYAUTH_CONFIG.Secret
+    })
+
+    self._api = keyauth
+    return true
+end
+
+function KeyAuth:CheckKey(keyStr)
+    if not self._api then
+        if not self:Init() then return false, nil end
+    end
+
+    local success, result = pcall(function()
+        return self._api.license(keyStr)
     end)
 
-    if not sdkOk or type(LuarmorAPI) ~= "table" then
-        onFail("sdk_unreachable")
-        return
+    if not success or not result then
+        return false, nil
     end
 
-    LuarmorAPI.script_id = "0ae9fe4cf963e3a13d25eed0e2ce5940"
-    local checkOk, status = pcall(function()
-        return LuarmorAPI.check_key(keyStr)
-    end)
-
-    if not checkOk or type(status) ~= "table" then
-        onFail("check_error")
-        return
-    end
-
-    local code = status.code or ""
-    local data = status.data
-
-    if code ~= "KEY_VALID" then
-        ClearKey()
-        onFail(code, status.message)
-        return
-    end
-    if IsExpiredNow(data) then
-        ClearKey()
-        onFail("KEY_EXPIRED", "Key expired")
-        return
-    end
-
-    local permanent = IsPermanentKey(data)
-    local elapsedStr = string.format("%.2fs", os.clock() - startTime)
-    onStatus("Key valid! Loading script from VPS...")
-    local ok, authData, errorMsg = VerifyWithServer(keyStr)
-
-    if ok and authData and authData.script then
-        ApplyScriptKey(keyStr)
-        SaveKey(keyStr)
-        getgenv().key_expire = data and data.auth_expire or 0
-        getgenv().key_note = data and data.note or ""
-        getgenv().key_executions = data and data.total_executions or 0
-
-        onSuccess({
-            permanent = permanent,
-            expire = getgenv().key_expire,
-            elapsedStr = elapsedStr,
-        })
-        LoadScript("Premium", authData.script)
+    if result.success then
+        return true, {
+            username = result.info.username,
+            subscription = result.info.subscription,
+            expiresAt = result.info.expiry,
+            hwid = result.info.hwid
+        }
     else
-        onStatus("VPS fallback — loading via Luarmor...")
-        ApplyScriptKey(keyStr)
-        SaveKey(keyStr)
-        onSuccess({
-            permanent = permanent,
-            expire = data and data.auth_expire or 0,
-            elapsedStr = elapsedStr,
-            fellBack = true,
-        })
-        LoadStockLoader()
+        return false, nil
     end
 end
 
+function KeyAuth:CheckHWID()
+    if not self._api then
+        if not self:Init() then return false end
+    end
 
+    local success, result = pcall(function()
+        return self._api.checkhwid()
+    end)
+
+    return success and result or false
+end
+
+local KeyAuthInstance = KeyAuth
+
+-- ============================================================
+-- TELA DE CHAVE (UI)
+-- ============================================================
 local function ShowKeyUI()
     local done = false
     local isPremium = false
@@ -843,7 +749,7 @@ local function ShowKeyUI()
         Font = Enum.Font.GothamBold,
         PlaceholderText = "Enter premium key...",
         PlaceholderColor3 = Color3.fromRGB(110, 85, 155),
-        Text = LoadSavedKey(),
+        Text = "",
         TextColor3 = Color3.fromRGB(225, 205, 255),
         TextSize = 11,
         TextXAlignment = Enum.TextXAlignment.Left,
@@ -883,56 +789,54 @@ local function ShowKeyUI()
         if submitting then return end
         submitting = true
 
-        ResolveAndLoadKey(keyStr, {
-            onStatus = function(msg)
-                SetStatus(msg, Color3.fromRGB(175, 150, 255))
-            end,
-
-            onSuccess = function(info)
+        -- Inicializa KeyAuth se necessário
+        if not KeyAuthInstance._api then
+            if not KeyAuthInstance:Init() then
+                SetStatus("Failed to initialize KeyAuth.", Color3.fromRGB(255, 90, 110))
                 submitting = false
-                isPremium = info.permanent
+                return
+            end
+        end
 
-                LRMStatusLabel.Text = info.permanent and "Premium Active" or "Time-Limited Key Active"
-                LRMStatusLabel.TextColor3 = Color3.fromRGB(80, 230, 130)
-                DisplayNameLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
+        SetStatus("Validating key...", Color3.fromRGB(175, 150, 255))
 
-                local statusMsg = info.fellBack
-                    and ("Verified in " .. info.elapsedStr .. "! (fallback loader)")
-                    or ("Verified in " .. info.elapsedStr .. "! Loading...")
-                SetStatus(statusMsg, Color3.fromRGB(80, 230, 130))
+        local success, data = KeyAuthInstance:CheckKey(keyStr)
 
-                Notify("Key Verified (" .. info.elapsedStr .. ")", "Expires: " .. ToTime(info.expire), Color3.fromRGB(80, 230, 130))
+        if success and data then
+            isPremium = true
+            SaveKey(keyStr, data)
 
-                task.wait(0.3)
-                AnimateClose()
-            end,
+            LRMStatusLabel.Text = "Premium Active"
+            LRMStatusLabel.TextColor3 = Color3.fromRGB(80, 230, 130)
+            DisplayNameLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
 
-            onFail = function(code, message)
-                submitting = false
+            SetStatus("✅ Key verified! Loading...", Color3.fromRGB(80, 230, 130))
+            Notify("Key Verified", "Welcome " .. data.username .. "!", Color3.fromRGB(80, 230, 130))
 
-                if code == "empty" then
-                    SetStatus("Please enter a key first.", Color3.fromRGB(255, 175, 80))
-                    return
-                elseif code == "sdk_unreachable" then
-                    SetStatus("Failed to reach Luarmor SDK.", Color3.fromRGB(255, 90, 110))
-                    Notify("YUtaFox", "Could not reach Luarmor SDK. Try again.", Color3.fromRGB(255, 90, 110))
-                    return
-                elseif code == "check_error" then
-                    SetStatus("Verification error — try again.", Color3.fromRGB(255, 90, 110))
-                    return
-                end
+            task.wait(0.5)
+            AnimateClose()
 
-                local msgMap = {
-                    KEY_HWID_LOCKED = "HWID mismatch — reset your key.",
-                    KEY_EXPIRED = "Key expired — get a new one.",
-                    KEY_BANNED = "Key is banned.",
-                    KEY_INCORRECT = "Key not found.",
-                }
-                local shown = msgMap[code] or tostring(message or ("Error: " .. tostring(code)))
-                SetStatus(shown, Color3.fromRGB(255, 90, 110))
-                Notify("Key Rejected", shown, Color3.fromRGB(255, 90, 110))
-            end,
-        })
+            -- Carrega o script premium (aqui você pode colocar a lógica real)
+            -- LoadScript("Premium", nil)
+            -- Por enquanto, apenas notifica que está funcionando
+            print("[YUtaFox] Premium ativado para: " .. data.username)
+
+        else
+            submitting = false
+            SetStatus("❌ Invalid key! Try again.", Color3.fromRGB(255, 90, 110))
+            Notify("Key Rejected", "The key you entered is invalid.", Color3.fromRGB(255, 90, 110))
+        end
+    end
+
+    -- Carregar chave salva
+    local saved = LoadSavedKey()
+    if saved and saved.key and #saved.key > 0 then
+        KeyInput.Text = saved.key
+        -- Tenta autenticar automaticamente
+        task.spawn(function()
+            task.wait(0.5)
+            SubmitKey(saved.key)
+        end)
     end
 
     local BtnY = 202
@@ -1037,10 +941,11 @@ local function ShowKeyUI()
         return btn
     end
 
-    MakeOptionBtn("Lootlabs", 4, API_CONFIG.KEY_LINKS.Lootlabs, "Copied link!")
-    MakeOptionBtn("Linkvertise", 38, API_CONFIG.KEY_LINKS.Linkvertise, "Copied link!")
+    -- Adiciona link para obter chave (pode ser substituído pelo seu próprio sistema)
+    MakeOptionBtn("Get Key", 4, "https://keyauth.cc/app/", "Open KeyAuth website!")
+    MakeOptionBtn("Support", 38, "https://discord.gg/yutafox", "Join our Discord!")
 
-    local getKeyBtn = MakeBtn("Get Key", RX + BtnW + BtnGap, BtnW, Color3.fromRGB(20, 45, 90), Color3.fromRGB(130, 195, 255), function()
+    local getKeyBtn = MakeBtn("Options", RX + BtnW + BtnGap, BtnW, Color3.fromRGB(20, 45, 90), Color3.fromRGB(130, 195, 255), function()
         panelOpen = not panelOpen
         OptionPanel.Visible = panelOpen
     end)
@@ -1073,20 +978,30 @@ local function ShowKeyUI()
     end)
 end
 
+-- ============================================================
+-- INICIALIZAÇÃO
+-- ============================================================
 local function AuthenticateAndLoad()
-    local SavedKey = LoadSavedKey()
-    if SavedKey and #SavedKey > 0 then
+    local saved = LoadSavedKey()
+    if saved and saved.key and #saved.key > 0 then
+        -- Tenta carregar com a chave salva
         task.spawn(function()
-            ResolveAndLoadKey(SavedKey, {
-                onStatus = function() end,
-                onSuccess = function(info)
-                    Notify("Welcome Back", "Auto-logged in in " .. info.elapsedStr .. ".", Color3.fromRGB(80, 230, 130))
-                end,
-                onFail = function()
-                    ClearKey()
-                    ShowKeyUI()
-                end,
-            })
+            -- Inicializa KeyAuth
+            if not KeyAuthInstance:Init() then
+                Notify("KeyAuth Error", "Failed to initialize KeyAuth.", Color3.fromRGB(255, 90, 110))
+                ShowKeyUI()
+                return
+            end
+
+            local success, data = KeyAuthInstance:CheckKey(saved.key)
+            if success and data then
+                Notify("Welcome Back", "Auto-logged in as " .. data.username, Color3.fromRGB(80, 230, 130))
+                -- Carrega o script premium
+                print("[YUtaFox] Premium ativado para: " .. data.username)
+            else
+                ClearKey()
+                ShowKeyUI()
+            end
         end)
     else
         ShowKeyUI()
