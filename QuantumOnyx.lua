@@ -9,7 +9,7 @@
 -- CONFIGURAÇÕES (VALIDAÇÃO LOCAL)
 -- ============================================================
 local API_CONFIG = {
-    BASE_URL = "https://api.yutafox.cc",
+    BASE_URL = "https://api.quantumonyx.cc",
     FALLBACK_URL = "http://165.232.169.51:22527",
     DISCORD_INVITE = "https://discord.gg/yutafox",
     KEY_LINKS = {
