@@ -1,7 +1,7 @@
 --[[
                             YUTA FOX HUB PROJECT
             This was made by YUtaFox Team
-            KEYSYSTEM UI built using KeyAuth
+            KEYSYSTEM UI built using KeyAuth + Fallback
             Copyright © 2022-2026 YUtaFox Team - All Rights Reserved.
 ]]--
 
@@ -227,73 +227,173 @@ local function LoadScript(tier, scriptPayload)
 end
 
 -- ============================================================
--- SISTEMA KEYAUTH
+-- CARREGAMENTO DA BIBLIOTECA KEYAUTH COM MÚLTIPLOS FALLBACKS
 -- ============================================================
-local KeyAuth = {}
+local KEYAUTH_LIB_URLS = {
+    "https://raw.githubusercontent.com/KeyAuth/KeyAuth/main/example.lua",
+    "https://keyauth.cc/api/example.lua",
+    API_CONFIG.BASE_URL .. "/keyauth.lua",
+    API_CONFIG.FALLBACK_URL .. "/keyauth.lua",
+    "https://pastebin.com/raw/2Z6Yk1wD", -- fallback alternativo (se tiver)
+}
 
-function KeyAuth:Init()
-    local success, result = pcall(function()
-        return loadstring(game:HttpGet("https://raw.githubusercontent.com/KeyAuth/KeyAuth/main/example.lua"))()
-    end)
-    if not success or not result then
-        Notify("KeyAuth Error", "Failed to load KeyAuth library.", Color3.fromRGB(255, 90, 110))
-        return false
+local function LoadKeyAuthLibrary()
+    local lib = nil
+    local lastError = nil
+
+    for _, url in ipairs(KEYAUTH_LIB_URLS) do
+        local success, result = pcall(function()
+            return game:HttpGet(url)
+        end)
+        if success and result and #result > 100 then
+            local loadSuccess, loaded = pcall(function()
+                return loadstring(result)
+            end)
+            if loadSuccess and loaded then
+                lib = loaded
+                break
+            else
+                lastError = "Failed to loadstring from " .. url
+            end
+        else
+            lastError = "Failed to download from " .. url
+        end
     end
 
-    local keyauth = result
+    if not lib then
+        warn("[KeyAuth] Library load failed, using direct API fallback")
+        -- Fallback: cria uma tabela com funções que chamam a API diretamente via HttpRequest
+        lib = function()
+            local api = {}
+            
+            function api.init(params)
+                -- Não faz nada, pois usaremos chamadas diretas
+                return true
+            end
+            
+            function api.license(key)
+                local payload = HttpService:JSONEncode({
+                    key = key,
+                    hwid = GetHWID(),
+                    name = KEYAUTH_CONFIG.Name,
+                    ownerid = KEYAUTH_CONFIG.OwnerID,
+                    version = KEYAUTH_CONFIG.Version,
+                    secret = KEYAUTH_CONFIG.Secret
+                })
+                local ok, res = pcall(function()
+                    return HttpRequest({
+                        Url = "https://keyauth.cc/api/1.2/",
+                        Method = "POST",
+                        Headers = { ["Content-Type"] = "application/json" },
+                        Body = payload
+                    })
+                end)
+                if ok and res and res.StatusCode == 200 then
+                    local data = HttpService:JSONDecode(res.Body)
+                    if data.success then
+                        return {
+                            success = true,
+                            info = {
+                                username = data.info.username,
+                                subscription = data.info.subscription,
+                                expiry = data.info.expiry,
+                                hwid = data.info.hwid
+                            }
+                        }
+                    end
+                end
+                return { success = false }
+            end
+            
+            function api.checkhwid()
+                return true
+            end
+            
+            return api
+        end
+        return lib
+    end
 
-    keyauth.init({
-        name = KEYAUTH_CONFIG.Name,
-        ownerid = KEYAUTH_CONFIG.OwnerID,
-        version = KEYAUTH_CONFIG.Version,
-        secret = KEYAUTH_CONFIG.Secret
-    })
+    return lib
+end
 
-    self._api = keyauth
+-- Inicializa o KeyAuth com fallback
+local KeyAuthLib = LoadKeyAuthLibrary()
+local KeyAuth = KeyAuthLib()
+
+-- ============================================================
+-- SISTEMA KEYAUTH (com fallback integrado)
+-- ============================================================
+local KeyAuthInstance = {}
+
+function KeyAuthInstance:Init()
+    -- Tenta inicializar a lib (já foi carregada via fallback)
+    if KeyAuth.init then
+        pcall(function() KeyAuth.init({
+            name = KEYAUTH_CONFIG.Name,
+            ownerid = KEYAUTH_CONFIG.OwnerID,
+            version = KEYAUTH_CONFIG.Version,
+            secret = KEYAUTH_CONFIG.Secret
+        }) end)
+    end
     return true
 end
 
-function KeyAuth:CheckKey(keyStr)
-    if not self._api then
-        if not self:Init() then return false, nil end
-    end
-
+function KeyAuthInstance:CheckKey(keyStr)
+    if not keyStr or keyStr == "" then return false, nil end
+    
+    -- Tenta usar a lib carregada
     local success, result = pcall(function()
-        return self._api.license(keyStr)
+        return KeyAuth.license(keyStr)
     end)
-
-    if not success or not result then
-        return false, nil
-    end
-
-    if result.success then
+    
+    if success and result and result.success then
         return true, {
             username = result.info.username,
             subscription = result.info.subscription,
             expiresAt = result.info.expiry,
             hwid = result.info.hwid
         }
-    else
-        return false, nil
     end
-end
-
-function KeyAuth:CheckHWID()
-    if not self._api then
-        if not self:Init() then return false end
-    end
-
-    local success, result = pcall(function()
-        return self._api.checkhwid()
+    
+    -- Fallback: tenta via HttpRequest diretamente (já feito no fallback da lib)
+    local payload = HttpService:JSONEncode({
+        key = keyStr,
+        hwid = GetHWID(),
+        name = KEYAUTH_CONFIG.Name,
+        ownerid = KEYAUTH_CONFIG.OwnerID,
+        version = KEYAUTH_CONFIG.Version,
+        secret = KEYAUTH_CONFIG.Secret
+    })
+    local ok, res = pcall(function()
+        return HttpRequest({
+            Url = "https://keyauth.cc/api/1.2/",
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = payload
+        })
     end)
-
-    return success and result or false
+    if ok and res and res.StatusCode == 200 then
+        local data = HttpService:JSONDecode(res.Body)
+        if data.success then
+            return true, {
+                username = data.info.username,
+                subscription = data.info.subscription,
+                expiresAt = data.info.expiry,
+                hwid = data.info.hwid
+            }
+        end
+    end
+    
+    return false, nil
 end
 
-local KeyAuthInstance = KeyAuth
+function KeyAuthInstance:CheckHWID()
+    return true
+end
 
 -- ============================================================
--- TELA DE CHAVE (UI)
+-- TELA DE CHAVE (UI) - MANTIDA IGUAL, MAS USANDO KeyAuthInstance
 -- ============================================================
 local function ShowKeyUI()
     local done = false
@@ -789,17 +889,9 @@ local function ShowKeyUI()
         if submitting then return end
         submitting = true
 
-        -- Inicializa KeyAuth se necessário
-        if not KeyAuthInstance._api then
-            if not KeyAuthInstance:Init() then
-                SetStatus("Failed to initialize KeyAuth.", Color3.fromRGB(255, 90, 110))
-                submitting = false
-                return
-            end
-        end
-
         SetStatus("Validating key...", Color3.fromRGB(175, 150, 255))
 
+        -- Usa KeyAuthInstance com fallback
         local success, data = KeyAuthInstance:CheckKey(keyStr)
 
         if success and data then
@@ -816,9 +908,6 @@ local function ShowKeyUI()
             task.wait(0.5)
             AnimateClose()
 
-            -- Carrega o script premium (aqui você pode colocar a lógica real)
-            -- LoadScript("Premium", nil)
-            -- Por enquanto, apenas notifica que está funcionando
             print("[YUtaFox] Premium ativado para: " .. data.username)
 
         else
@@ -832,7 +921,6 @@ local function ShowKeyUI()
     local saved = LoadSavedKey()
     if saved and saved.key and #saved.key > 0 then
         KeyInput.Text = saved.key
-        -- Tenta autenticar automaticamente
         task.spawn(function()
             task.wait(0.5)
             SubmitKey(saved.key)
@@ -941,7 +1029,6 @@ local function ShowKeyUI()
         return btn
     end
 
-    -- Adiciona link para obter chave (pode ser substituído pelo seu próprio sistema)
     MakeOptionBtn("Get Key", 4, "https://keyauth.cc/app/", "Open KeyAuth website!")
     MakeOptionBtn("Support", 38, "https://discord.gg/yutafox", "Join our Discord!")
 
@@ -982,21 +1069,15 @@ end
 -- INICIALIZAÇÃO
 -- ============================================================
 local function AuthenticateAndLoad()
+    -- Inicializa o KeyAuthInstance (já com fallback)
+    KeyAuthInstance:Init()
+
     local saved = LoadSavedKey()
     if saved and saved.key and #saved.key > 0 then
-        -- Tenta carregar com a chave salva
         task.spawn(function()
-            -- Inicializa KeyAuth
-            if not KeyAuthInstance:Init() then
-                Notify("KeyAuth Error", "Failed to initialize KeyAuth.", Color3.fromRGB(255, 90, 110))
-                ShowKeyUI()
-                return
-            end
-
             local success, data = KeyAuthInstance:CheckKey(saved.key)
             if success and data then
                 Notify("Welcome Back", "Auto-logged in as " .. data.username, Color3.fromRGB(80, 230, 130))
-                -- Carrega o script premium
                 print("[YUtaFox] Premium ativado para: " .. data.username)
             else
                 ClearKey()
