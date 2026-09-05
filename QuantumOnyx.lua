@@ -9,7 +9,7 @@
 -- CONFIGURAÇÕES (VALIDAÇÃO LOCAL)
 -- ============================================================
 local API_CONFIG = {
-    BASE_URL = "https://api.quantumonyx.cc",
+    BASE_URL = "https://api.yutafox.cc",
     FALLBACK_URL = "http://165.232.169.51:22527",
     DISCORD_INVITE = "https://discord.gg/yutafox",
     KEY_LINKS = {
@@ -202,34 +202,58 @@ local function ClearKey()
     end)
 end
 
+-- ============================================================
+-- FUNÇÃO LOADSCRIPT CORRIGIDA (CARREGA O HUB PRINCIPAL)
+-- ============================================================
 local function LoadScript(tier, scriptPayload)
-    if tier == "Free" then
-        local url = Scripts.Free[GameId]
-        if url then
-            pcall(function() loadstring(game:HttpGet(url))() end)
-        else
-            warn("[YUtaFox] No free script found for GameId: " .. tostring(GameId))
-        end
-    elseif tier == "Premium" then
-        -- Se não houver payload, carrega o free como fallback
-        if scriptPayload and type(scriptPayload) == "string" and #scriptPayload > 100 then
-            task.spawn(function()
-                local func, compileErr = loadstring(scriptPayload)
-                if func then
-                    local success, runtimeErr = pcall(func)
-                    if not success then
-                        warn("[YUtaFox BloxFruits] Runtime error: " .. tostring(runtimeErr))
-                        Notify("Script Runtime Error", tostring(runtimeErr):sub(1, 80), Color3.fromRGB(255, 90, 110), 10)
-                    end
-                else
-                    warn("[YUtaFox BloxFruits] Compilation error: " .. tostring(compileErr))
-                    Notify("Script Compile Error", tostring(compileErr):sub(1, 80), Color3.fromRGB(255, 90, 110), 10)
+    -- Se for premium e tiver payload, tenta carregar
+    if tier == "Premium" and scriptPayload and type(scriptPayload) == "string" and #scriptPayload > 100 then
+        task.spawn(function()
+            local func, compileErr = loadstring(scriptPayload)
+            if func then
+                local success, runtimeErr = pcall(func)
+                if not success then
+                    warn("[YUtaFox] Runtime error: " .. tostring(runtimeErr))
+                    Notify("Script Runtime Error", tostring(runtimeErr):sub(1, 80), Color3.fromRGB(255, 90, 110), 10)
                 end
-            end)
+            else
+                warn("[YUtaFox] Compilation error: " .. tostring(compileErr))
+                Notify("Script Compile Error", tostring(compileErr):sub(1, 80), Color3.fromRGB(255, 90, 110), 10)
+            end
+        end)
+        return
+    end
+
+    -- Fallback: carrega o hub do repositório oficial (Quantum Onyx Hub)
+    -- Este hub contém interface, ESP, auto farm, etc.
+    local hubUrl = "https://raw.githubusercontent.com/flazhy/QuantumOnyx/refs/heads/main/QuantumOnyx.lua"
+    
+    -- Se falhar, tenta um hub alternativo
+    local fallbackUrl = "https://raw.githubusercontent.com/7GrandDadPGN/VapeV4ForRoblox/main/loader.lua"
+    
+    local success, result = pcall(function()
+        return game:HttpGet(hubUrl)
+    end)
+    
+    if not success or not result or #result < 100 then
+        success, result = pcall(function()
+            return game:HttpGet(fallbackUrl)
+        end)
+    end
+
+    if success and result and #result > 100 then
+        local func, err = loadstring(result)
+        if func then
+            pcall(func)
+            print("[YUtaFox] Hub carregado com sucesso!")
+            Notify("YUtaFox", "Hub carregado! Aproveite!", Color3.fromRGB(80, 230, 130), 5)
         else
-            warn("[YUtaFox] No premium payload, loading free fallback...")
-            LoadScript("Free", nil)
+            warn("[YUtaFox] Erro ao compilar o hub: " .. tostring(err))
+            Notify("YUtaFox", "Erro ao carregar o hub. Tente novamente.", Color3.fromRGB(255, 90, 110), 10)
         end
+    else
+        warn("[YUtaFox] Não foi possível baixar o hub.")
+        Notify("YUtaFox", "Falha ao baixar o hub. Verifique sua conexão.", Color3.fromRGB(255, 90, 110), 10)
     end
 end
 
