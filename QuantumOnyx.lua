@@ -1,31 +1,30 @@
 --[[
                             YUTA FOX HUB PROJECT
             This was made by YUtaFox Team
-            KEYSYSTEM UI built with Local Validation
+            KEYSYSTEM UI built using claude ai
             Copyright © 2022-2026 YUtaFox Team - All Rights Reserved.
 ]]--
 
 -- ============================================================
--- CONFIGURAÇÕES DO SISTEMA DE CHAVES (VALIDAÇÃO LOCAL)
+-- CONFIGURAÇÕES (VALIDAÇÃO LOCAL)
 -- ============================================================
-local KEY_CONFIG = {
-    -- Lista de chaves válidas (adicione quantas quiser)
-    VALID_KEYS = {
-        "YUtaFox-1234",
-        "YUtaFox-5678",
-        "FREE-2024",
-        "TEST-KEY",
-        -- Adicione mais chaves aqui
-    },
-    -- Pasta onde salvar a chave usada
-    FOLDER = "YUtaFox Hub",
-    KEY_FILE = "YUtaFox Hub/Key.json"
-}
-
 local API_CONFIG = {
     BASE_URL = "https://api.yutafox.cc",
     FALLBACK_URL = "http://165.232.169.51:22527",
     DISCORD_INVITE = "https://discord.gg/yutafox",
+    KEY_LINKS = {
+        Lootlabs = "https://ads.luarmor.net/get_key?for=YUtaFox_Keysytem-NdUqNPMGBobv",
+        Linkvertise = "https://ads.luarmor.net/get_key?for=YUtaFox_Keysytem-KCyPvypRNlEm",
+    }
+}
+
+-- Chave mestra que sempre será aceita como premium
+local MASTER_KEY = "YUtaFox-2024"
+-- Chaves premium válidas (adicione quantas quiser)
+local PREMIUM_KEYS = {
+    "YUtaFox-2024",
+    "YUtaFox-Premium-01",
+    "YUtaFox-Premium-02",
 }
 
 local Directory = "https://raw.githubusercontent.com/flazhy/QuantumOnyx/refs/heads/main/Games"
@@ -37,8 +36,8 @@ local Scripts = {
     },
 }
 
-local FOLDER = KEY_CONFIG.FOLDER
-local KEY_FILE = KEY_CONFIG.KEY_FILE
+local FOLDER = "YUtaFox Hub"
+local KEY_FILE = FOLDER .. "/Key.json"
 
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -171,56 +170,37 @@ local function ToTime(expire)
     return string.format("%dm", minutes)
 end
 
--- ============================================================
--- SISTEMA DE CHAVES LOCAL (SEM KEYAUTH)
--- ============================================================
-local KeySystem = {}
-
-function KeySystem:IsValidKey(key)
-    if not key or key == "" then return false end
-    key = tostring(key):gsub("%s+", "")
-    for _, validKey in ipairs(KEY_CONFIG.VALID_KEYS) do
-        if key == validKey then
-            return true
-        end
-    end
-    return false
-end
-
-function KeySystem:SaveKey(key)
+local function SaveKey(key, data)
     pcall(function()
         if not IsFolderFunc(FOLDER) then MakeFolderFunc(FOLDER) end
         local saveData = {
             key = tostring(key):gsub("%s+", ""),
-            hwid = GetHWID(),
-            date = os.time()
+            username = data and data.username or "",
+            expiresAt = data and data.expiresAt or 0,
+            hwid = GetHWID()
         }
         WriteFileFunc(KEY_FILE, HttpService:JSONEncode(saveData))
     end)
 end
 
-function KeySystem:LoadSavedKey()
-    if IsFolderFunc(FOLDER) and IsFileFunc(KEY_FILE) then
+local function LoadSavedKey()
+    if pcall(function() return IsFolderFunc(FOLDER) and IsFileFunc(KEY_FILE) end) and IsFolderFunc(FOLDER) and IsFileFunc(KEY_FILE) then
         local ok, v = pcall(function()
             return HttpService:JSONDecode(ReadFileFunc(KEY_FILE))
         end)
-        if ok and type(v) == "table" and v.key then return v.key
+        if ok and type(v) == "table" and v.key then return v
+        else return nil
+        end
     end
     return nil
 end
 
-function KeySystem:ClearKey()
+local function ClearKey()
     pcall(function()
-        if IsFolderFunc(FOLDER) then WriteFileFunc(KEY_FILE, HttpService:JSONEncode({})) end
+        if not IsFolderFunc(FOLDER) then MakeFolderFunc(FOLDER) end
+        WriteFileFunc(KEY_FILE, HttpService:JSONEncode({}))
     end)
 end
-
-function KeySystem:CheckHWID()
-    -- Verificação simples de HWID (pode ser expandida)
-    return true
-end
-
-local KeySystemInstance = KeySystem
 
 local function LoadScript(tier, scriptPayload)
     if tier == "Free" then
@@ -231,6 +211,7 @@ local function LoadScript(tier, scriptPayload)
             warn("[YUtaFox] No free script found for GameId: " .. tostring(GameId))
         end
     elseif tier == "Premium" then
+        -- Se não houver payload, carrega o free como fallback
         if scriptPayload and type(scriptPayload) == "string" and #scriptPayload > 100 then
             task.spawn(function()
                 local func, compileErr = loadstring(scriptPayload)
@@ -246,14 +227,96 @@ local function LoadScript(tier, scriptPayload)
                 end
             end)
         else
-            warn("[YUtaFox BloxFruits] No payload, loading free fallback...")
+            warn("[YUtaFox] No premium payload, loading free fallback...")
             LoadScript("Free", nil)
         end
     end
 end
 
 -- ============================================================
--- TELA DE CHAVE (UI) - VERSÃO LOCAL
+-- VALIDAÇÃO LOCAL (SUBSTITUI O LUARMOR)
+-- ============================================================
+local function ValidateKeyLocal(keyStr)
+    keyStr = tostring(keyStr):gsub("%s+", "")
+    if keyStr == "" then return false, nil end
+
+    -- Verifica se a chave está na lista de premium
+    for _, validKey in ipairs(PREMIUM_KEYS) do
+        if keyStr == validKey then
+            return true, {
+                username = "Premium User",
+                subscription = "Premium",
+                expiresAt = 0, -- nunca expira
+                hwid = GetHWID()
+            }
+        end
+    end
+
+    -- Verifica se é a chave mestra
+    if keyStr == MASTER_KEY then
+        return true, {
+            username = "Master User",
+            subscription = "Master",
+            expiresAt = 0,
+            hwid = GetHWID()
+        }
+    end
+
+    return false, nil
+end
+
+-- ============================================================
+-- FUNÇÃO DE RESOLUÇÃO DE CHAVE (SUBSTITUI O LUARMOR)
+-- ============================================================
+local function ResolveAndLoadKey(keyStr, hooks)
+    hooks = hooks or {}
+    local onStatus = hooks.onStatus or function() end
+    local onSuccess = hooks.onSuccess or function() end
+    local onFail = hooks.onFail or function() end
+
+    keyStr = keyStr and tostring(keyStr):gsub("%s+", "") or ""
+    if keyStr == "" then
+        onFail("empty")
+        return
+    end
+
+    local startTime = os.clock()
+    onStatus("Validating key locally...")
+
+    -- Valida a chave localmente
+    local success, data = ValidateKeyLocal(keyStr)
+
+    if success and data then
+        local elapsedStr = string.format("%.2fs", os.clock() - startTime)
+        onStatus("Key valid! Loading script...")
+
+        -- Salva a chave
+        SaveKey(keyStr, data)
+
+        -- Define variáveis globais
+        getgenv().script_key = keyStr
+        getgenv().key = keyStr
+        getgenv().key_expire = 0
+        getgenv().key_note = data.username
+        getgenv().key_executions = 1
+
+        onSuccess({
+            permanent = true,
+            expire = 0,
+            elapsedStr = elapsedStr,
+        })
+
+        -- Carrega o script premium (fallback para free se não houver payload)
+        LoadScript("Premium", nil)
+
+    else
+        ClearKey()
+        onFail("KEY_INCORRECT", "Invalid key. Please check and try again.")
+    end
+end
+
+-- ============================================================
+-- TELA DE CHAVE (UI) - IGUAL AO ORIGINAL
 -- ============================================================
 local function ShowKeyUI()
     local done = false
@@ -751,39 +814,58 @@ local function ShowKeyUI()
 
         SetStatus("Validating key...", Color3.fromRGB(175, 150, 255))
 
-        -- Validação local
-        local isValid = KeySystemInstance:IsValidKey(keyStr)
+        ResolveAndLoadKey(keyStr, {
+            onStatus = function(msg)
+                SetStatus(msg, Color3.fromRGB(175, 150, 255))
+            end,
 
-        if isValid then
-            isPremium = true
-            KeySystemInstance:SaveKey(keyStr)
+            onSuccess = function(info)
+                submitting = false
+                isPremium = info.permanent
 
-            LRMStatusLabel.Text = "Premium Active"
-            LRMStatusLabel.TextColor3 = Color3.fromRGB(80, 230, 130)
-            DisplayNameLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
+                LRMStatusLabel.Text = info.permanent and "Premium Active" or "Time-Limited Key Active"
+                LRMStatusLabel.TextColor3 = Color3.fromRGB(80, 230, 130)
+                DisplayNameLbl.TextColor3 = Color3.fromRGB(130, 220, 160)
 
-            SetStatus("✅ Key verified! Loading...", Color3.fromRGB(80, 230, 130))
-            Notify("Key Verified", "Welcome to YUtaFox Premium!", Color3.fromRGB(80, 230, 130))
+                local statusMsg = info.fellBack
+                    and ("Verified in " .. info.elapsedStr .. "! (fallback loader)")
+                    or ("Verified in " .. info.elapsedStr .. "! Loading...")
+                SetStatus(statusMsg, Color3.fromRGB(80, 230, 130))
 
-            task.wait(0.5)
-            AnimateClose()
+                Notify("Key Verified (" .. info.elapsedStr .. ")", "Expires: " .. ToTime(info.expire), Color3.fromRGB(80, 230, 130))
 
-            print("[YUtaFox] Premium ativado com sucesso!")
+                task.wait(0.3)
+                AnimateClose()
+            end,
 
-        else
-            submitting = false
-            SetStatus("❌ Invalid key! Try again.", Color3.fromRGB(255, 90, 110))
-            Notify("Key Rejected", "The key you entered is invalid.", Color3.fromRGB(255, 90, 110))
-        end
+            onFail = function(code, message)
+                submitting = false
+
+                if code == "empty" then
+                    SetStatus("Please enter a key first.", Color3.fromRGB(255, 175, 80))
+                    return
+                end
+
+                local msgMap = {
+                    KEY_HWID_LOCKED = "HWID mismatch — reset your key.",
+                    KEY_EXPIRED = "Key expired — get a new one.",
+                    KEY_BANNED = "Key is banned.",
+                    KEY_INCORRECT = "Invalid key. Please check and try again.",
+                }
+                local shown = msgMap[code] or tostring(message or ("Error: " .. tostring(code)))
+                SetStatus(shown, Color3.fromRGB(255, 90, 110))
+                Notify("Key Rejected", shown, Color3.fromRGB(255, 90, 110))
+            end,
+        })
     end
 
     -- Carregar chave salva
-    local saved = KeySystemInstance:LoadSavedKey()
-    if saved and #saved > 0 then
-        KeyInput.Text = saved
+    local saved = LoadSavedKey()
+    if saved and saved.key and #saved.key > 0 then
+        KeyInput.Text = saved.key
         task.spawn(function()
             task.wait(0.5)
-            SubmitKey(saved)
+            SubmitKey(saved.key)
         end)
     end
 
@@ -889,10 +971,10 @@ local function ShowKeyUI()
         return btn
     end
 
-    MakeOptionBtn("Get Key", 4, "https://discord.gg/yutafox", "Join our Discord!")
-    MakeOptionBtn("Support", 38, "https://discord.gg/yutafox", "Join our Discord!")
+    MakeOptionBtn("Lootlabs", 4, API_CONFIG.KEY_LINKS.Lootlabs, "Copied link!")
+    MakeOptionBtn("Linkvertise", 38, API_CONFIG.KEY_LINKS.Linkvertise, "Copied link!")
 
-    local getKeyBtn = MakeBtn("Options", RX + BtnW + BtnGap, BtnW, Color3.fromRGB(20, 45, 90), Color3.fromRGB(130, 195, 255), function()
+    local getKeyBtn = MakeBtn("Get Key", RX + BtnW + BtnGap, BtnW, Color3.fromRGB(20, 45, 90), Color3.fromRGB(130, 195, 255), function()
         panelOpen = not panelOpen
         OptionPanel.Visible = panelOpen
     end)
@@ -929,14 +1011,16 @@ end
 -- INICIALIZAÇÃO
 -- ============================================================
 local function AuthenticateAndLoad()
-    local saved = KeySystemInstance:LoadSavedKey()
-    if saved and #saved > 0 then
+    local saved = LoadSavedKey()
+    if saved and saved.key and #saved.key > 0 then
         task.spawn(function()
-            if KeySystemInstance:IsValidKey(saved) then
-                Notify("Welcome Back", "Auto-logged in successfully!", Color3.fromRGB(80, 230, 130))
-                print("[YUtaFox] Premium ativado via chave salva!")
+            local success, data = ValidateKeyLocal(saved.key)
+            if success and data then
+                Notify("Welcome Back", "Auto-logged in as " .. data.username, Color3.fromRGB(80, 230, 130))
+                print("[YUtaFox] Premium ativado para: " .. data.username)
+                LoadScript("Premium", nil)
             else
-                KeySystemInstance:ClearKey()
+                ClearKey()
                 ShowKeyUI()
             end
         end)
