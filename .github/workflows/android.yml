@@ -9,9 +9,14 @@ on:
 permissions:
   contents: read
 
+env:
+  # Altere para a pasta do seu projeto Android neutro.
+  # Use "." se o projeto estiver na raiz do repositório.
+  PROJECT_DIR: android-app
+
 jobs:
   build:
-    name: Build APK
+    name: Compilar APK
     runs-on: ubuntu-latest
 
     steps:
@@ -22,20 +27,20 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
           cache: gradle
 
       - name: Configurar Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: ''
+          packages: ""
 
       - name: Aceitar licenças do Android SDK
         shell: bash
         run: |
           yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-      - name: Instalar componentes necessários
+      - name: Instalar componentes Android
         shell: bash
         run: |
           sdkmanager --install \
@@ -44,27 +49,28 @@ jobs:
             "build-tools;34.0.0"
 
       - name: Verificar estrutura do projeto
+        working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
         run: |
           test -f settings.gradle || test -f settings.gradle.kts
           test -d app
           test -f app/build.gradle || test -f app/build.gradle.kts
           test -f app/src/main/AndroidManifest.xml
+          test -f gradlew
 
-      - name: Permitir execução do Gradle
+      - name: Dar permissão ao Gradle
+        working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
-        run: |
-          test -f ./gradlew
-          chmod +x ./gradlew
+        run: chmod +x ./gradlew
 
       - name: Compilar APK debug
+        working-directory: ${{ env.PROJECT_DIR }}
         shell: bash
-        run: |
-          ./gradlew clean assembleDebug --no-daemon
+        run: ./gradlew clean assembleDebug --no-daemon
 
-      - name: Publicar APK como artefato
+      - name: Publicar APK
         uses: actions/upload-artifact@v4
         with:
           name: app-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: ${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
