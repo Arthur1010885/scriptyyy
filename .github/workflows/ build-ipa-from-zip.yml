@@ -6,7 +6,7 @@ on:
     paths:
       - "*.zip"
       - "**/*.zip"
-      - ".github/workflows/build-ipa-from-zip.yml"
+      - ".github/workflows/ build-ipa-from-zip.yml"
 
 permissions:
   contents: read
