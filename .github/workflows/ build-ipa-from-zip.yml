@@ -141,7 +141,7 @@ jobs:
             container=(-project "$project_path")
           fi
 
-          xcodebuild \
+          if ! xcodebuild \
             "${container[@]}" \
             -scheme "$scheme" \
             -configuration Release \
@@ -152,7 +152,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=NO \
-            archive | xcpretty
+            archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" | xcpretty; then
+            grep -i -C 4 -E 'error:|warning:|failed|actool|AssetCatalog' "$RUNNER_TEMP/xcodebuild.log" || \
+              cat "$RUNNER_TEMP/xcodebuild.log"
+            exit 1
+          fi
 
       - name: Package unsigned IPA
         shell: bash
