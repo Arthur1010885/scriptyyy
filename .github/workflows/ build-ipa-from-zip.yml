@@ -1,0 +1,167 @@
+name: Build IPA from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "*.zip"
+      - "**/*.zip"
+      - ".github/workflows/build-ipa-from-zip.yml"
+
+permissions:
+  contents: read
+
+env:
+  DEVELOPER_DIR: /Applications/Xcode_16.2.app/Contents/Developer
+
+jobs:
+  build-ipa:
+    runs-on: macos-14
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Find and extract uploaded ZIP
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/input" "$RUNNER_TEMP/source"
+
+          mapfile -t zips < <(find "$GITHUB_WORKSPACE" -type f -iname '*.zip' \
+            -not -path '*/.git/*' -not -path '*/build/*' | sort)
+
+          if [ "${#zips[@]}" -eq 0 ]; then
+            echo "No ZIP file was found in the repository."
+            exit 1
+          fi
+
+          if [ "${#zips[@]}" -gt 1 ]; then
+            echo "More than one ZIP was found. Upload only one source ZIP, or remove old ZIP files."
+            printf 'Found: %s\n' "${zips[@]}"
+            exit 1
+          fi
+
+          zip_file="${zips[0]}"
+          echo "Using ZIP: $zip_file"
+          unzip -q "$zip_file" -d "$RUNNER_TEMP/source"
+
+          # Some archives contain one top-level directory. Flatten it for discovery.
+          while true; do
+            entries=("$RUNNER_TEMP/source"/*)
+            if [ "${#entries[@]}" -eq 1 ] && [ -d "${entries[0]}" ]; then
+              shopt -s dotglob
+              mv "${entries[0]}"/* "$RUNNER_TEMP/source/" 2>/dev/null || true
+              rmdir "${entries[0]}" 2>/dev/null || true
+              shopt -u dotglob
+            else
+              break
+            fi
+          done
+
+          echo "Extracted source tree:"
+          find "$RUNNER_TEMP/source" -maxdepth 3 -type f | sort | head -200
+
+      - name: Locate Xcode project
+        id: locate
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          source_dir="$RUNNER_TEMP/source"
+
+          workspace=$(find "$source_dir" -maxdepth 5 -type d -name '*.xcworkspace' | sort | head -n 1 || true)
+          project=$(find "$source_dir" -maxdepth 5 -type d -name '*.xcodeproj' | sort | head -n 1 || true)
+
+          if [ -n "$workspace" ]; then
+            echo "kind=workspace" >> "$GITHUB_OUTPUT"
+            echo "path=$workspace" >> "$GITHUB_OUTPUT"
+            echo "Using workspace: $workspace"
+          elif [ -n "$project" ]; then
+            echo "kind=project" >> "$GITHUB_OUTPUT"
+            echo "path=$project" >> "$GITHUB_OUTPUT"
+            echo "Using project: $project"
+          else
+            echo "No .xcworkspace or .xcodeproj was found in the ZIP."
+            exit 1
+          fi
+
+      - name: Select scheme and build settings
+        id: settings
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          project_path="${{ steps.locate.outputs.path }}"
+          source_dir="$RUNNER_TEMP/source"
+
+          if [ "${{ steps.locate.outputs.kind }}" = "workspace" ]; then
+            container_arg=(-workspace "$project_path")
+          else
+            container_arg=(-project "$project_path")
+          fi
+
+          schemes=$(xcodebuild "${container_arg[@]}" -list 2>/dev/null | \
+            sed -n '/Schemes:/,$p' | tail -n +2 | sed 's/^[[:space:]]*//' | sed '/^$/d' || true)
+          scheme=$(printf '%s\n' "$schemes" | head -n 1)
+
+          if [ -z "$scheme" ]; then
+            scheme=$(find "$source_dir" -name '*.xcscheme' -print | head -n 1 | xargs -r basename -s .xcscheme || true)
+          fi
+
+          if [ -z "$scheme" ]; then
+            echo "No Xcode scheme was found. Make the scheme shared in Xcode and commit it."
+            exit 1
+          fi
+
+          echo "scheme=$scheme" >> "$GITHUB_OUTPUT"
+          echo "Using scheme: $scheme"
+
+      - name: Build unsigned archive
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RUNNER_TEMP/build" "$RUNNER_TEMP/archive"
+          project_path="${{ steps.locate.outputs.path }}"
+          scheme="${{ steps.settings.outputs.scheme }}"
+
+          if [ "${{ steps.locate.outputs.kind }}" = "workspace" ]; then
+            container=(-workspace "$project_path")
+          else
+            container=(-project "$project_path")
+          fi
+
+          xcodebuild \
+            "${container[@]}" \
+            -scheme "$scheme" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/build" \
+            -archivePath "$RUNNER_TEMP/archive/OriginalStore.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            AD_HOC_CODE_SIGNING_ALLOWED=NO \
+            archive | xcpretty
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          app_path=$(find "$RUNNER_TEMP/archive/OriginalStore.xcarchive/Products/Applications" -maxdepth 1 -name '*.app' -print -quit)
+          if [ -z "$app_path" ]; then
+            echo "The archive did not contain an .app bundle."
+            exit 1
+          fi
+
+          mkdir -p "$RUNNER_TEMP/ipa/Payload"
+          cp -R "$app_path" "$RUNNER_TEMP/ipa/Payload/"
+          (cd "$RUNNER_TEMP/ipa" && zip -qry "$GITHUB_WORKSPACE/OriginalStore-unsigned.ipa" Payload)
+          ls -lh "$GITHUB_WORKSPACE/OriginalStore-unsigned.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OriginalStore-unsigned-ipa
+          path: OriginalStore-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
