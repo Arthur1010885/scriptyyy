@@ -6,7 +6,7 @@ on:
     paths:
       - "*.zip"
       - "**/*.zip"
-      - ".github/workflows/ build-ipa-from-zip.yml"
+      - ".github/workflows/build-ipa-from-zip.yml"
 
 permissions:
   contents: read
@@ -16,12 +16,14 @@ env:
 
 jobs:
   build-ipa:
-    runs-on: macos-15-intel
+    runs-on: macos-14
     timeout-minutes: 45
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: Find and extract uploaded ZIP
         shell: bash
@@ -29,10 +31,7 @@ jobs:
           set -Eeuo pipefail
           mkdir -p "$RUNNER_TEMP/input" "$RUNNER_TEMP/source"
 
-          zips=()
-          while IFS= read -r zip_file; do
-            zips+=("$zip_file")
-          done < <(find "$GITHUB_WORKSPACE" -type f -iname '*.zip' \
+          mapfile -t zips < <(find "$GITHUB_WORKSPACE" -type f -iname '*.zip' \
             -not -path '*/.git/*' -not -path '*/build/*' | sort)
 
           if [ "${#zips[@]}" -eq 0 ]; then
@@ -48,15 +47,27 @@ jobs:
 
           zip_file="${zips[0]}"
           echo "Using ZIP: $zip_file"
-          python3 - "$zip_file" "$RUNNER_TEMP/source" <<'PY'
-          import sys
-          import zipfile
 
-          with zipfile.ZipFile(sys.argv[1]) as archive:
-              for member in archive.infolist():
-                  member.filename = member.filename.replace("\\", "/")
-                  archive.extract(member, sys.argv[2])
-          PY
+          # Large ZIPs committed through Git LFS are checked out as a pointer
+          # unless lfs:true is enabled above. Fail with an actionable message
+          # instead of the opaque Python zipfile.BadZipFile traceback.
+          if grep -q "^version https://git-lfs.github.com/spec/v1$" "$zip_file" 2>/dev/null; then
+            echo "The selected file is a Git LFS pointer, not the downloaded ZIP."
+            echo "Ensure Git LFS is enabled for the repository and keep lfs: true on checkout."
+            exit 1
+          fi
+
+          if ! unzip -tq "$zip_file" >/dev/null 2>&1; then
+            echo "The selected file is not a valid ZIP archive: $zip_file"
+            echo "Upload the actual .zip binary, not a Git LFS pointer, HTML page, or renamed folder."
+            echo "Detected file type:"
+            file "$zip_file" || true
+            echo "First bytes (diagnostic):"
+            head -c 120 "$zip_file" | LC_ALL=C od -An -tx1c || true
+            exit 1
+          fi
+
+          unzip -q "$zip_file" -d "$RUNNER_TEMP/source"
 
           # Some archives contain one top-level directory. Flatten it for discovery.
           while true; do
@@ -141,7 +152,7 @@ jobs:
             container=(-project "$project_path")
           fi
 
-          if ! xcodebuild \
+          xcodebuild \
             "${container[@]}" \
             -scheme "$scheme" \
             -configuration Release \
@@ -152,11 +163,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             AD_HOC_CODE_SIGNING_ALLOWED=NO \
-            archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log" | xcpretty; then
-            grep -i -C 4 -E 'error:|warning:|failed|actool|AssetCatalog' "$RUNNER_TEMP/xcodebuild.log" || \
-              cat "$RUNNER_TEMP/xcodebuild.log"
-            exit 1
-          fi
+            archive | xcpretty
 
       - name: Package unsigned IPA
         shell: bash
