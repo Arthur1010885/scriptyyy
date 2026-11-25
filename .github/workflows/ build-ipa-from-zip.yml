@@ -32,19 +32,20 @@ jobs:
           mkdir -p "$RUNNER_TEMP/input" "$RUNNER_TEMP/source"
 
           # Compatível com o Bash 3.2 padrão do macOS.
+          # O arquivo de entrada oficial deve se chamar exatamente original.zip.
           zips=()
           while IFS= read -r zip_path; do
             zips+=("$zip_path")
-          done < <(find "$GITHUB_WORKSPACE" -type f -iname '*.zip' \
+          done < <(find "$GITHUB_WORKSPACE" -type f -iname 'original.zip' \
             -not -path '*/.git/*' -not -path '*/build/*' | sort)
 
           if [ "${#zips[@]}" -eq 0 ]; then
-            echo "No ZIP file was found in the repository."
+            echo "No original.zip file was found in the repository."
             exit 1
           fi
 
           if [ "${#zips[@]}" -gt 1 ]; then
-            echo "More than one ZIP was found. Upload only one source ZIP, or remove old ZIP files."
+            echo "More than one original.zip was found. Keep only one source ZIP named original.zip."
             printf 'Found: %s\n' "${zips[@]}"
             exit 1
           fi
