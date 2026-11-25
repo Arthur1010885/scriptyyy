@@ -31,7 +31,11 @@ jobs:
           set -Eeuo pipefail
           mkdir -p "$RUNNER_TEMP/input" "$RUNNER_TEMP/source"
 
-          mapfile -t zips < <(find "$GITHUB_WORKSPACE" -type f -iname '*.zip' \
+          # Compatível com o Bash 3.2 padrão do macOS.
+          zips=()
+          while IFS= read -r zip_path; do
+            zips+=("$zip_path")
+          done < <(find "$GITHUB_WORKSPACE" -type f -iname '*.zip' \
             -not -path '*/.git/*' -not -path '*/build/*' | sort)
 
           if [ "${#zips[@]}" -eq 0 ]; then
