@@ -98,6 +98,23 @@ jobs:
           
           xcodebuild "${container[@]}" -scheme "${{ steps.settings.outputs.scheme }}" -sdk iphoneos -configuration Release -archivePath "$RUNNER_TEMP/OriginalStore.xcarchive" CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" archive 2>&1 | tee "$RUNNER_TEMP/xcodebuild.log"
           
+      - name: Bundle local patches and textures
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          app=$(find "$RUNNER_TEMP/OriginalStore.xcarchive/Products/Applications" -maxdepth 1 -name "*.app" -print | head -n 1)
+          test -n "$app"
+          source_resources="$RUNNER_TEMP/source/Resources/OriginalStore"
+          if [ -d "$source_resources" ]; then
+            mkdir -p "$app/Resources"
+            cp -R "$source_resources" "$app/Resources/"
+            count=$(find "$app/Resources/OriginalStore" -type f -name "*.3105" | wc -l | tr -d " ")
+            echo "Bundled $count local .3105 files"
+            test "$count" -gt 0
+          else
+            echo "Resources/OriginalStore not found in source ZIP."
+            exit 1
+          fi
       - name: Package unsigned IPA
       
         shell: bash
