@@ -106,10 +106,10 @@ jobs:
           test -n "$app"
           source_resources="$RUNNER_TEMP/source/Resources/OriginalStore"
           if [ -d "$source_resources" ]; then
-            mkdir -p "$app/Resources"
-            cp -R "$source_resources" "$app/Resources/"
-            count=$(find "$app/Resources/OriginalStore" -type f -name "*.3105" | wc -l | tr -d " ")
-            echo "Bundled $count local .3105 files"
+            mkdir -p "$app/OfflinePatches"
+            cp -R "$source_resources" "$app/OfflinePatches/"
+            count=$(find "$app/OfflinePatches" -type f -name "*.3105" | wc -l | tr -d " ")
+            echo "Bundled $count local .3105 files in OfflinePatches"
             test "$count" -gt 0
           else
             echo "Resources/OriginalStore not found in source ZIP."
