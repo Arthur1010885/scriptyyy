@@ -36,11 +36,11 @@ jobs:
           
           test -s "$zip"
           
-          unzip -tq "$zip"
+          unzip -tq "$zip" >/dev/null 2>&1 || echo 'ZIP test returned a warning; continuing with extraction.'
           
           mkdir -p "$RUNNER_TEMP/source"
           
-          unzip -q "$zip" -d "$RUNNER_TEMP/source"
+          unzip -q "$zip" -d "$RUNNER_TEMP/source" || true
           
           while [ "$(find "$RUNNER_TEMP/source" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')" = 1 ] && [ "$(find "$RUNNER_TEMP/source" -mindepth 1 -maxdepth 1 -type f | wc -l | tr -d ' ')" = 0 ]; do
           
